@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "human_pose_estimation"
+version = "0.1.0"
+description = "Human pose estimation from body-part segmented images"
+requires-python = ">=3.11"
+dependencies = [
+    "torch>=2.1",
+    "torchvision>=0.16",
+    "opencv-python>=4.8",
+    "numpy>=1.26",
+    "scipy>=1.11",
+    "Pillow>=10.0",
+    "pycocotools>=2.0.7",
+    "matplotlib>=3.8",
+    "tqdm>=4.66",
+    "mlflow>=2.9",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "pytest-cov>=4.1",
+    "ruff>=0.1",
+    "mypy>=1.7",
+    "pre-commit>=3.5",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = false
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["data*", "segmentation*", "pose*", "eval*"]
