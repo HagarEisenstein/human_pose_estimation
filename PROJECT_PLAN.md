@@ -152,12 +152,17 @@ accuracy, and reliability for downstream computer vision applications.
 
 ### Stretch goals (only if time permits)
 
+- **Non-overlapping multi-person via per-annotation cropping**: process each
+  COCO person annotation independently by cropping to its bounding box,
+  running the single-person pipeline, and re-projecting joints to image
+  coordinates. Handles scenes with multiple separated people at low cost.
 - Robustness sweep under mild synthetic mask noise.
 - Lightweight learned residual-refinement head over the rule-based output.
 
 ### Out of scope (future work)
 
-- Multi-person handling and CrowdPose evaluation.
+- Crowded / overlapping multi-person scenes (CrowdPose) — requires instance
+  segmentation, depth ordering, and occlusion handling.
 - Temporal extension to video.
 - Multiple competing baselines (OpenPose, ViTPose, etc.).
 
