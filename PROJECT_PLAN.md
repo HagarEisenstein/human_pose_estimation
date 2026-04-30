@@ -1,156 +1,180 @@
-# Project Work Plan
+# Project Plan: Human Pose Estimation from Body-Part Segmented Images
 
-**Project Overview:** Human Pose Estimation from Body-Part Segmented Images
+## 1. Overview
 
-## Table of contents
-1. Project Overview
-2. Milestone 1: Foundation & Segmentation Pipeline
-3. Milestone 2: Joint Inference, Skeleton Assembly & Evaluation
-4. Milestone 3: Validation & Final Report
+Build a human pose estimation system that derives skeletal joint locations from
+**body-part segmentation masks** rather than directly regressing keypoints from
+RGB pixels. The core idea: when two adjacent segments (e.g. upper arm and
+forearm) meet, the boundary between them — combined with each segment's
+geometry — defines the joint that connects them. Joints further from any
+intersection (head top, fingertips, foot tips) are derived from segment
+extremities and skeletal priors.
 
----
+The system is benchmarked against ground-truth keypoint datasets to quantify
+fidelity for downstream computer vision tasks (action recognition, AR/VR,
+biomechanics, sports analytics).
 
-**Project Overview:** This project focuses on building a human pose estimation
-system that derives skeletal joint locations from body-part segmentation masks
-rather than directly regressing keypoints from RGB pixels. The core idea is
-that boundaries between adjacent body segments (e.g., the intersection of the
-upper arm and forearm) define the joints that connect them, while extremity
-joints (head landmarks, fingertips, foot tips) are derived from segment
-endpoints and skeletal priors. By benchmarking the system's generated
-skeletons against ground-truth keypoint datasets, we quantitatively evaluate
-its fidelity, accuracy, and reliability for downstream computer vision
-applications.
+## 2. Goals & Non-Goals
 
-**Students:** [TBD]
-**Course:** [TBD]
-**Project title:** Human Pose Estimation from Body-Part Segmented Images
-**Milestones:** 3
-**Programming Language:** Python
+**Goals**
+- Recover 2D (and optionally 2.5D) joint locations from per-pixel body-part
+  labels.
+- Produce a standard skeleton (e.g. COCO 17-keypoint or extended 25-keypoint)
+  per detected person.
+- Match or beat a direct keypoint-regression baseline on PCK@0.2 / OKS for
+  scenes where segmentation is available.
+- Provide a reproducible evaluation harness (CLI + notebooks).
 
----
+**Non-Goals (v1)**
+- Training a segmentation model from scratch — we consume an existing one
+  (DensePose / Self-Correction Human Parsing / Mask2Former-Human).
+- Real-time deployment (>30 FPS); v1 targets correctness first.
+- Multi-view 3D reconstruction.
 
-## Milestone 1
-**Foundation & Segmentation Pipeline**
-**Due Date:** TBD
+## 3. Inputs & Outputs
 
-### Objectives
-- Define a canonical body-part taxonomy (15 parts: head, torso, upper/lower
-  arms L/R, hands L/R, upper/lower legs L/R, feet L/R) and encode joint
-  definitions as adjacent-part pairs.
-- Implement a unified `PoseSample` data contract and `PoseDataset` abstract
-  base class that every adapter conforms to.
-- Implement dataset adapters for COCO Keypoints (17-keypoint ground truth) and
-  DensePose-COCO (paired part-segmentation masks).
-- Wrap a frozen pretrained segmentation backbone (Mask2Former / SCHP /
-  DensePose) behind a uniform interface, with label-remap tables that
-  translate source labels to the canonical taxonomy.
-- Implement visualization tools to render part-mask overlays, keypoint dots,
-  and skeleton lines on RGB images.
-- Set up the project scaffold: `pyproject.toml`, dependency files, Makefile,
-  pre-commit hooks, and CI workflow.
+| Stage          | Input                                  | Output                                         |
+|----------------|----------------------------------------|------------------------------------------------|
+| Segmentation   | RGB image                              | Per-pixel part labels (N parts) + person mask  |
+| Joint solver   | Part-label map for one person          | K keypoints with confidences                   |
+| Post-process   | Raw keypoints                          | Topology-consistent skeleton, occlusion flags  |
+| Evaluation     | Predicted skeleton + GT keypoints      | PCK / OKS / per-joint MPJPE                    |
 
-### Deliverables
-- Source code for the canonical part taxonomy, `PoseSample` dataclass,
-  `PoseDataset` ABC, COCO and DensePose adapters, segmentation wrapper, and
-  download helper CLI.
-- Visualizations of paired RGB images with overlaid part masks and
-  ground-truth skeletons.
-- Justification of the rule-based, segmentation-driven approach (explaining
-  why mask-boundary geometry was chosen over direct keypoint regression).
-- Test suite covering data structures, label remapping, and visualization
-  (≥20 passing tests with CI green).
-- Initial figures showing part masks aligned with COCO ground-truth keypoints
-  on 50 sample images.
+## 4. Datasets
 
-### Comments
-This milestone focuses on the fundamental data structures and pipeline
-plumbing for the joint-inference experiment. By isolating the segmentation
-stage behind a fixed contract, downstream stages (joint solver, evaluator)
-are insulated from the choice of segmentation backbone, enabling clean
-ablations later.
+- **MS COCO Keypoints** — bounding boxes + 17 keypoints; large, diverse.
+- **MPII Human Pose** — 16 keypoints; activity-rich.
+- **LIP / ATR / Pascal-Person-Part** — semantic part segmentation labels.
+- **DensePose-COCO** — dense UV correspondences; doubles as fine-grained parts.
+- **CrowdPose** — stress test for occlusion and overlapping people.
 
----
+A small **paired** subset (segmentation + keypoints on the same image) is the
+primary evaluation set; COCO + DensePose-COCO covers this.
 
-## Milestone 2
-**Joint Inference, Skeleton Assembly & Evaluation**
-**Due Date:** TBD
+## 5. Method
 
-### Objectives
-- Define and implement the core **Joint Inference Operator** that derives a 2D
-  joint location from each pair of adjacent part masks via:
-  - Dilated mask intersection band → center-of-mass candidate.
-  - Medial-axis projection of each part for refinement.
-  - Confidence score from intersection area and mask quality.
-- Handle endpoint joints (nose, eyes, ears, foot tips) via medial-axis
-  extremities of single parts.
-- Implement skeleton assembly: build a tree rooted at the pelvis, enforce
-  limb-length plausibility from torso-derived anthropometric ratios, and
-  reject implausible joint angles (e.g., elbow ∈ [0°, 170°]).
-- Resolve left/right ambiguity using torso PCA orientation.
-- Implement raster-based evaluation metrics: PCK@0.2 (Percentage of Correct
-  Keypoints), OKS-AP (Object Keypoint Similarity), and per-joint MPJPE
-  (pixel error normalized by torso diagonal).
-- Compute and store distances against the ground-truth keypoints on a
-  paired COCO + DensePose validation subset.
+### 5.1 Part taxonomy
 
-### Deliverables
-- Code for the rule-based joint solver, skeleton-assembly module, and
-  plausibility filters.
-- Implementation of PCK, OKS, and MPJPE metrics plus a CLI evaluation runner.
-- Side-by-side visualizations of part mask → raw joints → assembled skeleton
-  on 50 images.
-- Preliminary graphs showing per-joint PCK and overall OKS-AP across the
-  COCO val2017 paired subset.
+Define a parts schema aligned with target skeleton:
+`head, torso, upper-arm-L/R, forearm-L/R, hand-L/R, upper-leg-L/R,
+lower-leg-L/R, foot-L/R`. Map source segmentation labels → schema via a
+lookup table.
 
-### Comments
-This milestone focuses on the core algorithmic contribution. The joint solver
-is purely geometric and rule-based — interpretable, debuggable, and traceable
-to a specific mask or rule when failures occur. The plausibility filter
-ensures topological validity even when segmentation is noisy.
+### 5.2 Joint inference rules
 
----
+For each joint J connecting parts A and B:
+1. **Intersection band**: dilate mask(A) and mask(B) by k px, intersect.
+2. **Center of mass** of the intersection band → candidate joint.
+3. **Skeletal prior refinement**: project the candidate onto the medial axis
+   of A (and B) and average; this stabilizes against irregular boundaries.
+4. **Confidence** = f(intersection area, mask quality, distance to medial axis).
 
-## Milestone 3
-**Validation & Final Report**
-**Due Date:** TBD
+Endpoint joints (head-top, wrists if hand absent, ankles → toes):
+- Use the farthest point of the part's medial axis from the parent joint.
 
-### Objectives
-- Analyze and visualize joint-inference behavior: per-joint PCK curves and
-  error distribution histograms across the COCO validation subset.
-- Build a qualitative gallery: ~10 successful predictions and ~10
-  characterized failure cases.
-- Compare the segmentation-driven solver against **one** standard baseline
-  (HRNet-W32 — the most widely cited top-down regressor) on the same split.
-- Briefly characterize 3–4 dominant failure modes (e.g., self-occlusion,
-  segmentation noise on thin limbs, atypical poses).
-- Prepare the final report and a runnable end-to-end demo.
+Symmetry handling: left/right disambiguation via torso orientation (PCA on
+torso mask) and consistency with previous frames if temporal input.
 
-### Deliverables
-- Final graphs: per-joint PCK breakdown, error histogram, and overall
-  OKS-AP comparison vs. the chosen baseline.
-- Failure-mode gallery with short captions.
-- Final report describing: Motivation, Methodology (segmentation-driven
-  joint inference), Joint Inference Operator design, Skeleton Assembly &
-  Plausibility, Evaluation Metrics, Validation Results, and Conclusions.
-- Final demo CLI: `pose-from-seg --image X.jpg --seg X_parts.png →
-  keypoints.json` running end-to-end.
-- Reproducibility script `make eval` running the full pipeline on a held-out
-  split.
+### 5.3 Skeleton assembly
 
-### Stretch goals (only if time permits)
-- Robustness sweep under mild synthetic mask noise.
-- Lightweight learned residual-refinement head over the rule-based output.
+- Build the skeleton tree rooted at the pelvis (or torso COM).
+- Enforce limb-length plausibility against per-subject anthropometric ratios
+  estimated from torso size.
+- Reject implausible angles via joint-angle priors (e.g. elbow ∈ [0°, 170°]).
 
-### Out of scope (future work)
-- Multi-person handling and CrowdPose evaluation.
-- Temporal extension to video.
-- Multiple competing baselines (OpenPose, ViTPose, etc.).
+### 5.4 Multi-person
 
-### Comments
-This final milestone focuses on cleanly closing the research story rather
-than expanding scope. The report explicitly answers the core question — *can
-we recover accurate joint locations from part-segmentation masks alone?* —
-and quantifies when the geometric approach matches or trails direct
-regression. Ambitious extensions (multi-person, learned refinement) are
-deferred to future work to keep M3 deliverables tractable and the analysis
-focused.
+Per-person instance masks → independent solve. For overlap, use depth-order
+heuristics (mask area, occlusion completeness) before refinement.
+
+## 6. System Architecture
+
+```
+┌────────────┐    ┌──────────────────┐    ┌────────────────┐    ┌──────────┐
+│  RGB image │ →  │ Part segmentation│ →  │ Joint inference│ →  │ Skeleton │
+└────────────┘    │ (frozen / API)   │    │ (rule-based +  │    │ assembly │
+                  └──────────────────┘    │  optional MLP) │    └────┬─────┘
+                                          └────────────────┘         │
+                                                                     ▼
+                                                           ┌──────────────────┐
+                                                           │ Evaluation suite │
+                                                           └──────────────────┘
+```
+
+Code layout:
+
+```
+human_pose_estimation/
+├── data/                  # dataset adapters, download scripts
+├── segmentation/          # wrapper around chosen seg model
+├── pose/
+│   ├── parts.py           # part taxonomy + label remap
+│   ├── joints.py          # rule-based joint solver
+│   ├── refine.py          # optional learned residual head
+│   └── skeleton.py        # tree assembly + plausibility
+├── eval/
+│   ├── metrics.py         # PCK, OKS, MPJPE
+│   ├── runner.py          # evaluation harness CLI
+│   └── viz.py             # overlay rendering
+├── notebooks/             # exploration + ablations
+├── tests/
+└── PROJECT_PLAN.md
+```
+
+## 7. Milestones
+
+| # | Milestone                                  | Exit criteria                                          | Est. |
+|---|--------------------------------------------|--------------------------------------------------------|------|
+| 1 | Repo scaffold + dataset adapters           | COCO + DensePose loaders; CI green                     | 1 wk |
+| 2 | Segmentation wrapper                       | Frozen model produces part masks for 100 images        | 1 wk |
+| 3 | Rule-based joint solver (v0)               | PCK@0.2 ≥ 0.55 on val subset                           | 2 wk |
+| 4 | Skeleton assembly + plausibility           | No NaNs, all skeletons topologically valid             | 1 wk |
+| 5 | Evaluation harness + baselines             | Reports PCK/OKS vs. HRNet / OpenPose baseline          | 1 wk |
+| 6 | Learned residual refinement (optional)     | +5 PCK over rule-based                                 | 2 wk |
+| 7 | Multi-person + occlusion handling          | CrowdPose AP ≥ 0.40                                    | 2 wk |
+| 8 | Ablations + final report                   | Plots, tables, reproducible script                     | 1 wk |
+
+Total: ~10–11 weeks.
+
+## 8. Evaluation Plan
+
+- **Primary**: PCK@0.2 and OKS-AP on COCO val2017 (paired with DensePose).
+- **Secondary**: per-joint MPJPE in pixels, normalized by torso diagonal.
+- **Robustness**: degrade input segmentation (mask noise σ, dropped parts)
+  and plot metric vs. degradation.
+- **Comparative**: HRNet-W32 (top-down regression) and OpenPose (bottom-up
+  PAFs) as baselines on the same split.
+- **Qualitative**: 50-image gallery with overlay; failure-mode taxonomy
+  (occlusion, self-touching limbs, unusual poses).
+
+## 9. Risks & Mitigations
+
+| Risk                                        | Mitigation                                            |
+|---------------------------------------------|-------------------------------------------------------|
+| Segmentation errors propagate to joints     | Confidence weighting; learned residual; mask cleanup  |
+| Left/right ambiguity                        | Torso PCA + temporal smoothing                        |
+| Datasets disagree on part taxonomy          | Explicit remap tables; report per-dataset numbers     |
+| Self-occlusion (arm against torso)          | Skeletal priors + plausibility filter                 |
+| Compute for segmentation backbone           | Cache masks to disk; eval on fixed subset             |
+
+## 10. Tooling & Stack
+
+- Python 3.11, PyTorch, OpenCV, NumPy, SciPy (medial-axis transform).
+- `pycocotools`, `densepose` reference impl.
+- `pytest` + `ruff` + `mypy`; pre-commit hooks.
+- Experiment tracking via `mlflow` or W&B (decide in milestone 1).
+- Optional: ONNX export for the residual model.
+
+## 11. Deliverables
+
+1. Reproducible repo with `make eval` running end-to-end on a small split.
+2. Pretrained residual-refinement weights (if M6 is reached).
+3. Evaluation report (PDF + notebook) with tables, plots, gallery.
+4. CLI: `pose-from-seg --image X.jpg --seg X_parts.png → keypoints.json`.
+
+## 12. Open Questions
+
+- Which segmentation backbone to standardize on (Mask2Former vs. SCHP vs.
+  DensePose)? Decision in M2 after a short bake-off.
+- 2D only, or extend to 2.5D using DensePose UV? Defer to M5 review.
+- Temporal extension for video — separate follow-up project.
