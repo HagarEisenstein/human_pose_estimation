@@ -10,7 +10,7 @@ Usage
 
     ds = COCOPoseDataset(
         root="data/raw",
-        split="val2017",
+        split="val2017", # train2017 only used if M3 stretch (learned residual) is pursued
         min_keypoints=5,   # skip nearly invisible people
         subset=100,        # only load the first 100 annotations (dev mode)
     )

@@ -127,15 +127,24 @@ class DensePoseDataset(COCOPoseDataset):
             if rle_or_none is None:
                 continue
 
-            # RLE can be stored as a dict {counts, size} or as a raw string
+            # RLE can be stored as a dict {counts, size}, a raw string, or a
+            # list (polygon format in newer annotation files — skip those).
+            if isinstance(rle_or_none, list):
+                continue
+
+            # DensePose masks are always encoded at 256×256 inside the bbox.
             if isinstance(rle_or_none, str):
-                rle = {"counts": rle_or_none.encode(), "size": [h, w]}
+                rle = {"counts": rle_or_none.encode(), "size": [256, 256]}
             else:
-                rle = {"counts": rle_or_none["counts"], "size": [h, w]}
+                rle = {"counts": rle_or_none["counts"], "size": [256, 256]}
                 if isinstance(rle["counts"], str):
                     rle["counts"] = rle["counts"].encode()
 
-            decoded = mask_utils.decode(rle).astype(bool)  # (h, w)
+            decoded256 = mask_utils.decode(rle).astype(np.uint8)  # (256, 256)
+            # Resize to actual bbox dimensions
+            decoded = cv2.resize(
+                decoded256, (max(w, 1), max(h, 1)), interpolation=cv2.INTER_NEAREST
+            ).astype(bool)
 
             # Map to canonical label
             canonical = int(DENSEPOSE_TO_PART.get(part_idx_1based, 0))

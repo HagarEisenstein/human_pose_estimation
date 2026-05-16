@@ -35,8 +35,8 @@ COCO_ANN_URL = (
 COCO_IMG_BASE = "http://images.cocodataset.org/val2017/"
 
 DENSEPOSE_ANN_URL = (
-    "https://dl.fbaipublicfiles.com/densepose/annotations/"
-    "densepose_coco_2014_minival.json"
+    "https://dl.fbaipublicfiles.com/densepose/annotations/coco/"
+    "densepose_minival2014.json"
 )
 
 DATA_ROOT = Path(__file__).parent / "raw"
@@ -136,6 +136,40 @@ def download_densepose_annotations(root: Path) -> None:
     download_file(DENSEPOSE_ANN_URL, dest, desc="DensePose annotations")
 
 
+def download_densepose_images(root: Path) -> None:
+    """Download the images referenced by the DensePose minival annotations."""
+    dp_file = root / "annotations" / "densepose_coco_2014_minival.json"
+    if not dp_file.exists():
+        print("  [skip] DensePose annotations not found — run with --densepose first")
+        return
+
+    coco_ann_file = root / "annotations" / "person_keypoints_val2017.json"
+    img_dir = root / "val2017"
+    img_dir.mkdir(parents=True, exist_ok=True)
+
+    with dp_file.open() as f:
+        dp = json.load(f)
+
+    # Build image-id → filename map from COCO annotations
+    with coco_ann_file.open() as f:
+        coco = json.load(f)
+    id_to_fname = {img["id"]: img["file_name"] for img in coco["images"]}
+
+    img_ids = {ann["image_id"] for ann in dp["annotations"]}
+    filenames = [id_to_fname[i] for i in img_ids if i in id_to_fname]
+
+    print(f"  Downloading {len(filenames)} images referenced by DensePose annotations…")
+    for fname in tqdm(filenames, unit="img"):
+        dest = img_dir / fname
+        if dest.exists():
+            continue
+        url = COCO_IMG_BASE + fname
+        try:
+            urllib.request.urlretrieve(url, dest)
+        except Exception as exc:  # noqa: BLE001
+            print(f"  Warning: failed to download {fname}: {exc}")
+
+
 # ── CLI entry point ───────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -150,7 +184,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--densepose", action="store_true",
-        help="Also download DensePose minival annotations"
+        help="Also download DensePose minival annotations + their images"
     )
     parser.add_argument(
         "--images-only", action="store_true",
@@ -172,6 +206,8 @@ def main() -> None:
     if args.densepose:
         print("\n[3/3] DensePose annotations")
         download_densepose_annotations(root)
+        print("\n[3b] DensePose images")
+        download_densepose_images(root)
 
     print("\nDone.  Run  make eval  to verify the setup.")
 
