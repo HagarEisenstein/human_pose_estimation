@@ -6,6 +6,7 @@ Main entry points:
     draw_keypoints(image, keypoints)    → joints as dots
     draw_skeleton(image, keypoints)     → joints + limb lines
     show_sample(sample)                 → all-in-one panel
+    show_pipeline(sample, raw_kp, refined_kp)  → pipeline 4-panel figure
 """
 
 from __future__ import annotations
@@ -206,6 +207,107 @@ def show_sample(
     if save_path:
         plt.savefig(save_path, bbox_inches="tight", dpi=150)
         print(f"Saved figure to {save_path}")
+    else:
+        plt.show()
+    plt.close(fig)
+
+
+# ── Pipeline panel ────────────────────────────────────────────────────────────
+
+def show_pipeline(
+    sample,              # PoseSample — provides .image, .part_mask, .keypoints
+    raw_kp: np.ndarray,  # (17, 3) output of pose.joints.solve()
+    refined_kp: np.ndarray,  # (17, 3) output of pose.skeleton.assemble()
+    *,
+    figsize: tuple[int, int] = (24, 6),
+    save_path: str | None = None,
+) -> None:
+    """Display a 4-panel pipeline figure.
+
+    Panels (left to right):
+        1. Original image
+        2. Part-mask overlay on image  (segmentor output)
+        3. Raw joint predictions on part-mask  (joint solver output)
+        4. Assembled + refined skeleton on original image  (skeleton assembly output)
+
+    An optional 5th column can be toggled by passing a GT skeleton separately,
+    but the default keeps it to 4 panels to stay readable at A4 width.
+
+    Args:
+        sample:     PoseSample — provides .image, .part_mask, .keypoints.
+        raw_kp:     (17, 3) float32 — raw keypoints from solve().
+        refined_kp: (17, 3) float32 — refined keypoints from assemble().
+        figsize:    Matplotlib figure size.
+        save_path:  If set, save to this path instead of calling plt.show().
+    """
+    image = sample.image  # RGB uint8
+
+    # Panel 2 — part-mask overlay
+    if sample.part_mask is not None:
+        mask_overlay = draw_part_mask(image, sample.part_mask, alpha=0.55)
+    else:
+        mask_overlay = image.copy()
+
+    # Panel 3 — raw joints drawn on top of part-mask overlay
+    raw_on_mask = mask_overlay.copy()
+    raw_bgr = cv2.cvtColor(raw_on_mask, cv2.COLOR_RGB2BGR)
+    for i, (x, y, conf) in enumerate(raw_kp):
+        if conf == 0:
+            continue
+        cv2.circle(raw_bgr, (int(x), int(y)), 6, (0, 255, 255), -1)
+        cv2.circle(raw_bgr, (int(x), int(y)), 6, (0, 0, 0), 1)
+    raw_on_mask = cv2.cvtColor(raw_bgr, cv2.COLOR_BGR2RGB)
+
+    # Panel 4 — refined skeleton on original image
+    refined_img = draw_skeleton(image, refined_kp, thickness=2, radius=5)
+
+    # ── Layout ────────────────────────────────────────────────────────────────
+    fig, axes = plt.subplots(1, 4, figsize=figsize)
+
+    vis_kp  = int(np.sum(sample.keypoints[:, 2] > 0))
+    raw_kp_count  = int(np.sum(raw_kp[:, 2] > 0))
+    ref_kp_count  = int(np.sum(refined_kp[:, 2] > 0))
+
+    fig.suptitle(
+        f"image_id={sample.image_id}  |  "
+        f"GT visible={vis_kp}/17  |  "
+        f"raw joints={raw_kp_count}/17  |  "
+        f"assembled={ref_kp_count}/17",
+        fontsize=10,
+    )
+
+    axes[0].imshow(image)
+    axes[0].set_title("Original image", fontsize=9)
+    axes[0].axis("off")
+
+    axes[1].imshow(mask_overlay)
+    axes[1].set_title("Part mask (segmentor)", fontsize=9)
+    axes[1].axis("off")
+    # Add a compact legend for parts that actually appear
+    if sample.part_mask is not None:
+        patches = [
+            mpatches.Patch(
+                color=np.array(PART_COLORS[p][::-1]) / 255,
+                label=PART_NAMES[p],
+            )
+            for p in Part
+            if p != Part.BACKGROUND and np.any(sample.part_mask == int(p))
+        ]
+        if patches:
+            axes[1].legend(handles=patches, loc="lower right",
+                           fontsize=5, ncol=2)
+
+    axes[2].imshow(raw_on_mask)
+    axes[2].set_title(f"Raw joints ({raw_kp_count}/17)", fontsize=9)
+    axes[2].axis("off")
+
+    axes[3].imshow(refined_img)
+    axes[3].set_title(f"Assembled skeleton ({ref_kp_count}/17)", fontsize=9)
+    axes[3].axis("off")
+
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path, bbox_inches="tight", dpi=150)
     else:
         plt.show()
     plt.close(fig)

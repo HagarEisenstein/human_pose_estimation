@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import matplotlib
+matplotlib.use("Agg")   # non-interactive backend — required for headless test environments
+
 import numpy as np
 import pytest
 

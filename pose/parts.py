@@ -158,6 +158,32 @@ SCHP_TO_PART: dict[int, Part] = {
 }
 
 
+# SegFormer-clothes (mattmdjaga/segformer_b2_clothes) 18-class labels → canonical Part
+# Trained on the ATR clothes-parsing dataset.  No separate left/right for arms or legs
+# in the source labels — they get the same Part on both sides.
+# https://huggingface.co/mattmdjaga/segformer_b2_clothes
+SEGFORMER_CLOTHES_TO_PART: dict[int, Part] = {
+    0:  Part.BACKGROUND,
+    1:  Part.HEAD,         # Hat
+    2:  Part.HEAD,         # Hair
+    3:  Part.HEAD,         # Sunglasses
+    4:  Part.TORSO,        # Upper-clothes
+    5:  Part.BACKGROUND,   # Skirt — no canonical mapping
+    6:  Part.UPPER_LEG_L,  # Pants → both legs share label (no L/R in source)
+    7:  Part.TORSO,        # Dress
+    8:  Part.TORSO,        # Belt
+    9:  Part.FOOT_L,       # Left-shoe
+    10: Part.FOOT_R,       # Right-shoe
+    11: Part.HEAD,         # Face
+    12: Part.LOWER_LEG_L,  # Left-leg
+    13: Part.LOWER_LEG_R,  # Right-leg
+    14: Part.UPPER_ARM_L,  # Left-arm  (no upper/lower distinction in source)
+    15: Part.UPPER_ARM_R,  # Right-arm
+    16: Part.BACKGROUND,   # Bag
+    17: Part.HEAD,         # Scarf
+}
+
+
 def remap_mask(mask_hw: "np.ndarray", remap: dict[int, Part]) -> "np.ndarray":  # noqa: F821
     """Apply a label remap table to a (H, W) integer mask.
 
