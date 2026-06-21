@@ -9,6 +9,9 @@ HRNet-W32 per-joint AP numbers are taken from the official paper:
 Our system is evaluated using the oracle segmentor (GT DensePose masks) so the
 comparison is an upper-bound analysis — real segmentor results would be lower.
 
+Note: Ours = PCK@threshold, HRNet = AP — these are not the same metric, so
+this comparison is a rough, caveated reference rather than a strict benchmark.
+
 Usage
 -----
     python notebooks/comparison_table.py

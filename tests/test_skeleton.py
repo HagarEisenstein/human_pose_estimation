@@ -7,6 +7,7 @@ import pytest
 
 from pose.parts import Part
 from pose.skeleton import (
+    _correct_lr,
     _interior_angle_deg,
     _detect_swap_from_joints,
     assemble,
@@ -86,7 +87,8 @@ class TestConfidenceThreshold:
         assert out[5, 2] == 0.0
 
 
-# ── Step 2: left/right correction ────────────────────────────────────────────
+# ── Left/right correction (implemented but not wired into assemble(); see
+#    pose/skeleton.py module docstring — exercised directly here) ─────────────
 
 class TestDetectSwapFromJoints:
     def test_no_swap_when_left_shoulder_right_of_right(self):
@@ -115,12 +117,15 @@ class TestDetectSwapFromJoints:
 
 
 class TestCorrectLR:
+    """_correct_lr() is not called by assemble() (see module docstring for
+    why), so it is exercised directly here rather than through assemble()."""
+
     def test_swapped_labels_are_corrected(self):
         """After swap: left_shoulder should be at x=150 (right of image)."""
         kp = _kp()
         _set(kp, 5,  50.0, 80.0)    # left_shoulder incorrectly on left
         _set(kp, 6, 150.0, 80.0)    # right_shoulder incorrectly on right
-        out = assemble(kp, _blank_mask(), torso_diagonal=300.0)
+        out = _correct_lr(kp, _blank_mask())
         # After correction, left_shoulder should be at x=150
         assert out[5, 0] == pytest.approx(150.0)
         assert out[6, 0] == pytest.approx(50.0)
@@ -129,7 +134,7 @@ class TestCorrectLR:
         kp = _kp()
         _set(kp, 5, 150.0, 80.0)   # left_shoulder correctly on right
         _set(kp, 6,  50.0, 80.0)   # right_shoulder correctly on left
-        out = assemble(kp, _blank_mask(), torso_diagonal=300.0)
+        out = _correct_lr(kp, _blank_mask())
         assert out[5, 0] == pytest.approx(150.0)
         assert out[6, 0] == pytest.approx(50.0)
 
@@ -140,10 +145,19 @@ class TestCorrectLR:
         _set(kp, 6, 150.0, 80.0)
         _set(kp, 11,  50.0, 150.0)  # left_hip also on wrong side
         _set(kp, 12, 150.0, 150.0)
-        out = assemble(kp, _blank_mask(), torso_diagonal=300.0)
+        out = _correct_lr(kp, _blank_mask())
         # After swap: left_hip should have moved to x=150
         assert out[11, 0] == pytest.approx(150.0)
         assert out[12, 0] == pytest.approx(50.0)
+
+    def test_assemble_does_not_apply_lr_correction(self):
+        """assemble() leaves swapped labels as-is (correction disabled)."""
+        kp = _kp()
+        _set(kp, 5,  50.0, 80.0)    # left_shoulder on "wrong" side
+        _set(kp, 6, 150.0, 80.0)
+        out = assemble(kp, _blank_mask(), torso_diagonal=300.0)
+        assert out[5, 0] == pytest.approx(50.0)
+        assert out[6, 0] == pytest.approx(150.0)
 
 
 # ── Step 3: limb-length filter ────────────────────────────────────────────────

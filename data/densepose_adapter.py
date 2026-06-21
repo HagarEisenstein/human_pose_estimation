@@ -42,12 +42,19 @@ class DensePoseDataset(COCOPoseDataset):
         root:        Same as COCOPoseDataset — COCO root directory.
         split:       "val2017" or "train2017".
         min_keypoints: Minimum visible keypoints to include an annotation.
-        subset:      Limit to first N annotations (dev mode).
+        subset:      Limit to first N annotations *that have DensePose
+                     coverage* (dev mode).  DensePose annotations are sparse
+                     (e.g. ~40% of COCO val2017 person instances), so this
+                     dataset filters to DensePose-covered annotations BEFORE
+                     applying subset — otherwise `subset=100` mostly selects
+                     annotations with no part_mask, and oracle-mode eval
+                     would skip the majority of them for no benefit.
 
     Note:
-        DensePose annotations are sparse — not every COCO person
-        annotation has a DensePose counterpart.  Samples without a
-        DensePose annotation return ``part_mask=None``.
+        Samples without a DensePose annotation are excluded entirely (not
+        returned with ``part_mask=None``), since every consumer of this
+        dataset (GTOracleSegmentor, the figure-generation notebooks) only
+        does useful work when a part_mask is present.
     """
 
     DP_ANN_FILES = {
@@ -62,7 +69,9 @@ class DensePoseDataset(COCOPoseDataset):
         min_keypoints: int = 5,
         subset: int | None = None,
     ) -> None:
-        super().__init__(root=root, split=split, min_keypoints=min_keypoints, subset=subset)
+        # Load the full (un-truncated) annotation list first — subset is
+        # applied below, after filtering to DensePose-covered annotations.
+        super().__init__(root=root, split=split, min_keypoints=min_keypoints, subset=None)
 
         # Try to load DensePose annotations (optional — fine if missing)
         dp_file = self.root / "annotations" / self.DP_ANN_FILES.get(split, "")
@@ -74,6 +83,12 @@ class DensePoseDataset(COCOPoseDataset):
             for ann in dp_data.get("annotations", []):
                 if "dp_masks" in ann or "dp_I" in ann:
                     self._dp_anns[ann["id"]] = ann
+
+            # Keep only annotations that actually have DensePose coverage,
+            # so `subset` selects from usable samples instead of raw file
+            # order (which is uncorrelated with DensePose/image-download
+            # coverage and would otherwise discard most of the subset).
+            self._anns = [a for a in self._anns if a["id"] in self._dp_anns]
         else:
             import warnings
             warnings.warn(
@@ -82,6 +97,9 @@ class DensePoseDataset(COCOPoseDataset):
                 "Run  python -m data.download --densepose  to fetch it.",
                 stacklevel=2,
             )
+
+        if subset is not None:
+            self._anns = self._anns[:subset]
 
     # ── Override __getitem__ to attach part_mask ──────────────────────────────
 

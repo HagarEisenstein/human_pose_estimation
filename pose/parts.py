@@ -111,50 +111,30 @@ COCO_JOINT_NAMES = [j.name for j in JOINT_DEFINITIONS]  # ordered by coco_idx
 
 # ── Label remapping tables ────────────────────────────────────────────────────
 
-# DensePose 14-part labels → canonical Part
+# DensePose dp_masks 14-channel labels → canonical Part
+#
+# dp_masks is a 14-element list (channels 1-14); channel order verified
+# empirically against COCO GT keypoints (each part's pixel centroid was
+# checked against its expected nearest keypoint across 37 val2017 samples,
+# see eval diagnostics) — the previous table's channel order did not match
+# the actual dp_masks layout, scrambling every limb label.
 # https://github.com/facebookresearch/DensePose/blob/main/doc/DENSEPOSE_IUV.md
 DENSEPOSE_TO_PART: dict[int, Part] = {
     0:  Part.BACKGROUND,
-    1:  Part.TORSO,       # Torso front
-    2:  Part.TORSO,       # Torso back
-    3:  Part.UPPER_ARM_R,
-    4:  Part.UPPER_ARM_L,
-    5:  Part.LOWER_ARM_R,
-    6:  Part.LOWER_ARM_L,
-    7:  Part.UPPER_LEG_R,
-    8:  Part.UPPER_LEG_L,
-    9:  Part.LOWER_LEG_R,
-    10: Part.LOWER_LEG_L,
-    11: Part.HEAD,
-    12: Part.FOOT_L,
-    13: Part.FOOT_R,
-    14: Part.HAND_L,
-    15: Part.HAND_R,
-}
-
-# Self-Correction Human Parsing (SCHP / LIP) 20-class labels → canonical Part
-# https://github.com/PeikeLi/Self-Correction-Human-Parsing
-SCHP_TO_PART: dict[int, Part] = {
-    0:  Part.BACKGROUND,
-    1:  Part.HEAD,         # hat
-    2:  Part.HEAD,         # hair
-    3:  Part.BACKGROUND,   # glove → ignore
-    4:  Part.HEAD,         # sunglasses
-    5:  Part.TORSO,        # upper-clothes
-    6:  Part.TORSO,        # dress
-    7:  Part.TORSO,        # coat
-    8:  Part.BACKGROUND,   # socks
-    9:  Part.TORSO,        # pants
-    10: Part.BACKGROUND,   # jumpsuits → keep as torso if needed
-    11: Part.HEAD,         # scarf
-    12: Part.BACKGROUND,   # skirt
-    13: Part.UPPER_ARM_L,  # left-arm (wearing clothes)
-    14: Part.UPPER_ARM_R,  # right-arm
-    15: Part.UPPER_LEG_L,  # left-leg
-    16: Part.UPPER_LEG_R,  # right-leg
-    17: Part.FOOT_L,       # left-shoe
-    18: Part.FOOT_R,       # right-shoe
-    19: Part.HEAD,         # face
+    1:  Part.TORSO,
+    2:  Part.HAND_R,
+    3:  Part.HAND_L,
+    4:  Part.FOOT_L,
+    5:  Part.FOOT_R,
+    6:  Part.UPPER_LEG_R,
+    7:  Part.UPPER_LEG_L,
+    8:  Part.LOWER_LEG_R,
+    9:  Part.LOWER_LEG_L,
+    10: Part.UPPER_ARM_L,
+    11: Part.UPPER_ARM_R,
+    12: Part.LOWER_ARM_L,
+    13: Part.LOWER_ARM_R,
+    14: Part.HEAD,
 }
 
 

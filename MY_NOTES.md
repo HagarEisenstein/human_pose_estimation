@@ -1059,3 +1059,120 @@ We reverted this change.
 > *I also tried to fix the nose detection by moving it lower in the face, but
 > empirical testing showed the original was actually better — a reminder that
 > geometric intuition about segmentation masks must be validated against real data."*
+
+---
+
+## M3 — Real Segmentor Evaluation & Failure-Mode Analysis
+
+### Oracle vs. Real Segmentation: Quantifying the Gap
+
+The oracle segmentor (`GTOracleSegmentor`) feeds the joint solver a hand-labeled,
+perfect DensePose part mask. It exists to isolate one question: *given flawless
+segmentation, how good is the geometric joint-inference logic itself?* After the M2
+fixes (corrected DensePose label table, removed the harmful L/R-swap step, fixed
+subset selection), the oracle reaches:
+
+| Metric          | Oracle (perfect input) |
+|-----------------|-------------------------|
+| PCK@0.2         | 0.82                    |
+| OKS             | 0.45                    |
+| MPJPE           | 0.05                    |
+
+This is a ceiling, not a real-world result. To measure what the system actually
+delivers without ground-truth segmentation, we ran the same pipeline with
+`SegFormerSegmentor` (`mattmdjaga/segformer_b2_clothes`, a pretrained clothes-parsing
+model) predicting the part mask from raw pixels, on the same kind of COCO val2017
+subset:
+
+| Metric          | Oracle (perfect input) | SegFormer (real prediction) |
+|-----------------|-------------------------|------------------------------|
+| PCK@0.2         | 0.82                    | **0.23**                     |
+| OKS             | 0.45                    | **0.035**                    |
+| MPJPE           | 0.05                    | **0.49**                     |
+
+**Conclusion:** the geometric joint solver is sound — the bottleneck for real-world
+accuracy is segmentation quality, not the joint-inference math. This directly answers
+the project's core research question (can accurate joints be recovered from
+part-segmentation alone?) with a clear "yes, *if* the segmentation is good" — and
+quantifies how much headroom is lost when it isn't.
+
+### Failure Mode: Structurally Unrecoverable Joints (both wrists, right hip, right knee)
+
+Per-joint SegFormer results show four joints stuck at **exactly** PCK = 0.0 with
+`MPJPE = null` (not just a low score — `null` means the joint was never predicted
+even once, across every sample):
+
+| Joint        | PCK@0.2 | MPJPE  |
+|--------------|---------|--------|
+| left_wrist   | 0.000   | null   |
+| right_wrist  | 0.000   | null   |
+| right_hip    | 0.000   | null   |
+| right_knee   | 0.000   | null   |
+| left_hip     | 0.236   | 0.553  |
+| left_knee    | 0.103   | 0.308  |
+
+The left/right asymmetry on hips and knees is the diagnostic clue. Root cause is in
+the SegFormer label-remap table (`pose/parts.py`, `SEGFORMER_CLOTHES_TO_PART`):
+
+```python
+6:  Part.UPPER_LEG_L,  # Pants → both legs share label (no L/R in source)
+...
+14: Part.UPPER_ARM_L,  # Left-arm  (no upper/lower distinction in source)
+15: Part.UPPER_ARM_R,  # Right-arm
+```
+
+This specific checkpoint is a **clothing**-parsing model, not a body-part model:
+- It has one undifferentiated `Pants` class covering both legs — currently mapped
+  entirely to `UPPER_LEG_L`, so `UPPER_LEG_R` never appears in its output at all.
+  Any joint needing a `UPPER_LEG_R` boundary (`right_hip`, `right_knee`) is therefore
+  structurally impossible to compute, regardless of image content.
+- It has one `arm` class with no forearm/hand distinction at all — mapped only to
+  `UPPER_ARM_L/R`. There is no `LOWER_ARM` or `HAND` label anywhere in the table.
+  Wrists need a `LOWER_ARM ↔ HAND` boundary, so they are unrecoverable with this
+  checkpoint regardless of image content, occlusion, or pose.
+
+This is a genuine, characterized failure mode (per the M3 brief) rather than a bug:
+the source model was never trained to distinguish these regions, so no
+post-processing of its *existing* output can recover information it never produced.
+
+### Why We Didn't Patch This With a Geometric Heuristic
+
+The obvious quick fix for the `Pants` L/R ambiguity is to split the blob by image
+position (e.g. "left of the torso center → UPPER_LEG_L"). We rejected this — it's
+the exact same "anatomical left always renders at higher image x" assumption that we
+already measured and removed from `pose/skeleton.py`'s L/R-swap correction earlier in
+M2, because it only holds for a person directly facing the camera and made results
+*worse* 90% of the time it fired on real (non-frontal) photos. Reapplying the same
+flawed assumption here would just reintroduce the same failure mode one layer lower
+in the pipeline.
+
+A more defensible fix exists in principle: SegFormer's checkpoint *does* correctly
+distinguish `Left-leg`/`Right-leg` (the shins) and `Left-shoe`/`Right-shoe` — only the
+`Pants` (upper-leg) class is ambiguous. A per-pixel nearest-anchor assignment (assign
+each `Pants` pixel to whichever already-correctly-labeled lower-leg blob it's
+spatially closest to) would side-step the frontal-facing assumption entirely. This
+was scoped but not implemented — flagged here as a possible future improvement rather
+than pursued, since wrists would remain unrecoverable either way (no amount of
+post-processing recovers a forearm/hand class the model never predicted), and the
+project's stated focus is the joint-solver's geometric accuracy, not perfecting a
+specific pretrained backbone's label granularity.
+
+### Interview Summary
+
+> *"I evaluated the pipeline with a real segmentation backbone (SegFormer) instead of
+> the oracle, to see what accuracy the system actually delivers without ground-truth
+> segmentation. PCK dropped from 0.82 to 0.23 — a large gap, but an expected and
+> informative one: it tells me the joint-inference logic itself is sound, and the
+> current bottleneck is segmentation quality, not the geometric math.*
+>
+> *Looking closer, four joints — both wrists, right hip, right knee — scored exactly
+> zero, not just low. That's a sign of a structural gap, not noise: this particular
+> SegFormer checkpoint is a clothing-parsing model that doesn't have separate labels
+> for left/right pants legs or for forearm/hand versus upper arm. So those joints are
+> mathematically impossible to locate from its output, regardless of image quality.*
+>
+> *I considered a quick fix — splitting the ambiguous 'Pants' region into left/right
+> by image position — but rejected it, because it's the same frontal-facing-camera
+> assumption I already proved was harmful when correcting L/R swaps earlier in the
+> joint solver. I documented this as a characterized failure mode instead of patching
+> around it with a heuristic I already knew was unreliable."*

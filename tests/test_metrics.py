@@ -7,7 +7,7 @@ import math
 import numpy as np
 import pytest
 
-from eval.metrics import Accumulator, MPJPEResult, PCKResult, mpjpe, oks, pck
+from eval.metrics import OKS_AP_THRESHOLDS, Accumulator, MPJPEResult, PCKResult, mpjpe, oks, pck
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -315,3 +315,43 @@ class TestAccumulator:
         assert math.isnan(summary["pck_overall"])
         assert math.isnan(summary["oks_mean"])
         assert math.isnan(summary["mpjpe_overall"])
+        assert math.isnan(summary["oks_ap"])
+
+
+# ── OKS-AP tests ──────────────────────────────────────────────────────────────
+
+class TestOKSAP:
+    def test_thresholds_are_coco_standard(self):
+        """10 thresholds from 0.50 to 0.95 in steps of 0.05."""
+        assert len(OKS_AP_THRESHOLDS) == 10
+        assert OKS_AP_THRESHOLDS[0] == pytest.approx(0.50)
+        assert OKS_AP_THRESHOLDS[-1] == pytest.approx(0.95)
+
+    def test_perfect_samples_ap_one(self):
+        """OKS=1.0 for every sample → clears every threshold → AP = 1.0."""
+        pr, gt = _pred(), _gt()
+        _set_pred(pr, 5, 100.0, 100.0)
+        _set_gt(gt,   5, 100.0, 100.0)
+        td = 300.0
+        acc = Accumulator()
+        for _ in range(5):
+            acc.update(pck(pr, gt, td), oks(pr, gt, _bbox()), mpjpe(pr, gt, td))
+        assert acc.summarise()["oks_ap"] == pytest.approx(1.0, abs=1e-6)
+
+    def test_mixed_scores_give_partial_ap(self):
+        """One perfect sample (OKS=1, clears all 10 thresholds) and one
+        zero-OKS sample (clears none) → AP averages to 0.5."""
+        pr_good, gt_good = _pred(), _gt()
+        _set_pred(pr_good, 5, 100.0, 100.0)
+        _set_gt(gt_good,   5, 100.0, 100.0)
+
+        pr_bad, gt_bad = _pred(), _gt()
+        _set_gt(gt_bad, 5, 100.0, 100.0)   # pred stays unset → OKS = 0
+
+        td = 300.0
+        acc = Accumulator()
+        acc.update(pck(pr_good, gt_good, td), oks(pr_good, gt_good, _bbox()),
+                   mpjpe(pr_good, gt_good, td))
+        acc.update(pck(pr_bad, gt_bad, td), oks(pr_bad, gt_bad, _bbox()),
+                   mpjpe(pr_bad, gt_bad, td))
+        assert acc.summarise()["oks_ap"] == pytest.approx(0.5, abs=1e-6)

@@ -2,22 +2,28 @@
 Skeleton assembly and plausibility checks — M2.
 
 Takes the raw (17, 3) keypoints produced by the joint solver and applies
-four sequential post-processing steps:
+three sequential post-processing steps:
 
   1. Confidence threshold  — joints below min_conf are zeroed immediately.
 
-  2. Left/right correction — detects when the solver's "left" and "right"
-     labels are swapped (a common failure with symmetric segmentation masks).
-     Uses shoulder/hip positions as the primary signal, and torso PCA as a
-     fallback when neither pair is fully visible.
-
-  3. Limb-length filter    — each limb's pixel length is compared to the
+  2. Limb-length filter    — each limb's pixel length is compared to the
      torso diagonal (the scale reference).  Limbs that are impossibly short
      or impossibly long have their endpoint's confidence zeroed.
 
-  4. Joint-angle filter    — the interior angle at elbow and knee joints is
+  3. Joint-angle filter    — the interior angle at elbow and knee joints is
      computed.  Angles below a minimum threshold indicate the solver placed
      a joint in an anatomically impossible position; confidence is zeroed.
+
+Left/right correction (_correct_lr / _detect_swap_from_joints /
+_detect_swap_from_pca below) is implemented but NOT applied by default.
+It assumes the person directly faces the camera ("anatomical left always
+renders at higher image x"), which doesn't hold for back-facing, profile,
+or otherwise non-frontal poses.  Measured on DensePose-oracle masks (whose
+part labels are already anatomically correct regardless of camera facing),
+this correction fired on 27% of samples and made the result worse 90% of
+the time it fired (0% improved) — so it is disabled here.  The functions
+remain available/tested for segmentation backends that genuinely produce
+ambiguous left/right labels (e.g. from a symmetric source mask).
 
 Usage
 -----
@@ -105,14 +111,11 @@ def assemble(
     # Step 1 — zero joints that the solver couldn't locate reliably
     _zero_low_confidence(kp, min_conf)
 
-    # Step 2 — fix left/right label swaps
-    kp = _correct_lr(kp, part_mask)
-
-    # Step 3 — limb-length plausibility
+    # Step 2 — limb-length plausibility
     if torso_diagonal > 0:
         _apply_limb_filter(kp, torso_diagonal)
 
-    # Step 4 — joint-angle plausibility
+    # Step 3 — joint-angle plausibility
     _apply_angle_filter(kp)
 
     return kp

@@ -111,6 +111,10 @@ class COCOPoseDataset(PoseDataset):
                 "Run  python -m data.download  to fetch COCO images."
             )
         image_bgr = cv2.imread(str(img_path))
+        if image_bgr is None:
+            raise FileNotFoundError(
+                f"Image could not be decoded (empty or corrupt): {img_path}"
+            )
         image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
 
         # ── Keypoints ────────────────────────────────────────────────────────

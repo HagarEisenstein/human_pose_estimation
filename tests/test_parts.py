@@ -8,7 +8,6 @@ import pytest
 from pose.parts import (
     DENSEPOSE_TO_PART,
     JOINT_DEFINITIONS,
-    SCHP_TO_PART,
     Part,
     remap_mask,
 )
@@ -69,6 +68,3 @@ class TestRemapMask:
         for src, dst in DENSEPOSE_TO_PART.items():
             assert isinstance(dst, Part), f"label {src} maps to {dst!r}, expected Part"
 
-    def test_schp_remap_all_keys(self):
-        for src, dst in SCHP_TO_PART.items():
-            assert isinstance(dst, Part)

@@ -15,6 +15,20 @@ Three metrics, each operating on one (pred, GT) sample pair:
     where d = pixel distance, s = sqrt(bbox area), σ = per-joint constant.
     Result ∈ [0, 1].  Unpredicted joints contribute 0.
 
+  OKS-AP (Object Keypoint Similarity — Average Precision)
+    The dataset-level metric COCO's keypoint leaderboard actually reports
+    (and what published AP numbers like HRNet-W32's are measured with).
+    Computed by Accumulator.summarise() as: for each of 10 OKS thresholds
+    (0.50, 0.55, ..., 0.95), the fraction of samples whose OKS ≥ that
+    threshold; then average across thresholds.  This is the standard
+    COCO AP-over-OKS-thresholds definition, simplified for this project's
+    1:1 sample↔annotation correspondence (no detection confidence ranking
+    is needed, since every sample already has exactly one matched
+    prediction — there's no multi-candidate precision/recall curve to
+    build).  Unlike OKS-mean (a single threshold-free average), OKS-AP is
+    directly comparable to published AP numbers like HRNet-W32's, because
+    it's computed the same way.
+
   MPJPE  (Mean Per-Joint Position Error)
     Mean pixel distance between predicted and GT joints, normalised by
     torso_diagonal.  Only joints where BOTH GT is visible AND prediction
@@ -70,6 +84,9 @@ _OKS_SIGMAS = np.array([
     0.089,   # 15 left_ankle
     0.089,   # 16 right_ankle
 ], dtype=np.float64)
+
+# ── OKS-AP thresholds (COCO standard: 0.50:0.05:0.95, 10 values) ──────────────
+OKS_AP_THRESHOLDS = np.arange(0.50, 1.00, 0.05)
 
 
 # ── Result containers ─────────────────────────────────────────────────────────
@@ -319,6 +336,7 @@ class Accumulator:
     # OKS accumulator
     _oks_sum:   float = 0.0
     _oks_count: int   = 0
+    _oks_scores: list[float] = field(default_factory=list)  # raw per-sample OKS, for OKS-AP
 
     # MPJPE accumulators: running sum and count of valid errors per joint
     _mpjpe_sum: np.ndarray = field(
@@ -364,6 +382,7 @@ class Accumulator:
         if np.isfinite(oks_score):
             self._oks_sum   += oks_score
             self._oks_count += 1
+            self._oks_scores.append(oks_score)
 
         # MPJPE — only accumulate valid (non-NaN) per-joint values
         valid = ~np.isnan(mpjpe_result.per_joint)
@@ -393,6 +412,19 @@ class Accumulator:
         oks_mean = self._oks_sum / self._oks_count \
                    if self._oks_count > 0 else float("nan")
 
+        # OKS-AP: COCO-style average over 10 OKS thresholds (0.50:0.05:0.95).
+        # For each threshold, the fraction of samples whose OKS >= threshold;
+        # then average those 10 fractions.  Directly comparable to published
+        # AP numbers (e.g. HRNet-W32), unlike the threshold-free oks_mean.
+        if self._oks_scores:
+            scores = np.array(self._oks_scores, dtype=np.float64)
+            per_threshold = [
+                float((scores >= t).mean()) for t in OKS_AP_THRESHOLDS
+            ]
+            oks_ap = float(np.mean(per_threshold))
+        else:
+            oks_ap = float("nan")
+
         # Per-joint MPJPE
         with np.errstate(invalid="ignore", divide="ignore"):
             mpjpe_per_joint = np.where(
@@ -410,6 +442,7 @@ class Accumulator:
             "pck_overall":     pck_overall,
             "pck_per_joint":   pck_per_joint,
             "oks_mean":        oks_mean,
+            "oks_ap":          oks_ap,
             "mpjpe_overall":   mpjpe_overall,
             "mpjpe_per_joint": mpjpe_per_joint,
             "n_samples":       self._n_samples,
