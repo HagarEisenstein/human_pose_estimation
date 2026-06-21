@@ -221,8 +221,6 @@ def print_summary(summary: dict) -> None:
     print(sep)
     print(f"  Overall PCK@{thresh}  :  {_fmt(summary['pck_overall'])}")
     print(f"  Overall OKS      :  {_fmt(summary['oks_mean'])}")
-    print(f"  Overall OKS-AP   :  {_fmt(summary.get('oks_ap', float('nan')))}"
-          f"   (comparable to published AP, e.g. HRNet-W32)")
     print(f"  Overall MPJPE    :  {_fmt(summary['mpjpe_overall'])}")
     print(thin)
     print(f"  {'Joint':<22}  {'PCK@' + str(thresh):>9}  {'MPJPE':>9}")
