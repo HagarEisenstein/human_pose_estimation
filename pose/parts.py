@@ -2,8 +2,7 @@
 Part taxonomy and label remapping.
 
 Defines the canonical set of body parts used throughout this project and
-provides lookup tables to remap labels from external segmentation models
-(DensePose, SCHP, Pascal-Person-Part) into this shared schema.
+provides lookup tables to remap labels from external segmentation models into this shared schema.
 """
 
 from __future__ import annotations
